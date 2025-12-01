@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import textwrap
 import time
@@ -11,19 +10,16 @@ from typing import Dict, List, Optional
 
 try:
     import requests
-except ImportError:  # pragma: no cover - dependency check
+except ImportError:
     requests = None
 
 
-# ========= 하드코딩안된 LLM 설정 =========
-OPENAI_API_KEY = "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"  # 여기에 실제 API 키를 입력하세요
-OPENAI_MODEL = "gpt-4o-mini"          # 원하는 모델명으로 변경 가능
-OPENAI_API_BASE = "https://api.openai.com/v1"  # OpenAI 호환 엔드포인트
-# =====================================
+OPENAI_API_KEY = "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
+OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_API_BASE = "https://api.openai.com/v1"
 
 
 def run(cmd: List[str], cwd: Optional[Path] = None) -> None:
-    """Run a command and raise on failure."""
     res = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
     if res.returncode != 0:
         raise RuntimeError(
@@ -32,7 +28,6 @@ def run(cmd: List[str], cwd: Optional[Path] = None) -> None:
 
 
 def decompile(apk_path: Path, out_dir: Path) -> Path:
-    """Run jadx to decompile the APK. Uses `jadx -d <out_dir> <apk>`."""
     if out_dir.exists() and any(out_dir.iterdir()):
         raise FileExistsError(
             f"{out_dir} already exists and is not empty. Remove or rename it first."
@@ -43,7 +38,6 @@ def decompile(apk_path: Path, out_dir: Path) -> Path:
 
 
 def find_manifest(out_dir: Path) -> Optional[Path]:
-    """Find AndroidManifest.xml in common locations under the jadx output."""
     candidates = [
         out_dir / "AndroidManifest.xml",
         out_dir / "resources" / "AndroidManifest.xml",
@@ -56,8 +50,7 @@ def find_manifest(out_dir: Path) -> Optional[Path]:
 
 
 def parse_manifest(manifest_path: Path) -> Dict[str, object]:
-    """Parse basic manifest info (package, permissions, exported components)."""
-    import xml.etree.ElementTree as ET  # local import to avoid global dependency
+    import xml.etree.ElementTree as ET
 
     info: Dict[str, object] = {
         "package": "",
@@ -100,15 +93,7 @@ def iter_candidate_files(
     limit: Optional[int] = None,
     max_bytes: Optional[int] = None,
     package_name: Optional[str] = None,
-    exclude_libs: bool = True,
 ) -> List[Path]:
-    """
-    Choose interesting files:
-    - By extension (.java, .kt, optionally .smali).
-    - Optionally under max_bytes size.
-    - Prefer app package paths; optionally exclude common library prefixes.
-    - No keyword filtering; include all non-library files.
-    """
     exts = {".java", ".kt"}
     if include_smali:
         exts.add(".smali")
@@ -146,13 +131,14 @@ def iter_candidate_files(
         base = path.name
         if base.startswith("R$") or base in {"R.java", "BuildConfig.java"}:
             continue
+        
         is_lib = any(rel.startswith(prefix) for prefix in lib_prefixes)
-        if exclude_libs and is_lib:
+        if is_lib:
             continue
+        
         is_app_pkg = package_path and rel.startswith(package_path)
-        lib_flag = 1 if is_lib else 0
         app_rank = 0 if is_app_pkg else 1
-        candidates.append((lib_flag, app_rank, size, path))
+        candidates.append((0, app_rank, size, path))
 
     candidates.sort(key=lambda item: (item[0], item[1], -item[2]))
     sliced = candidates if limit is None else candidates[:limit]
@@ -160,7 +146,6 @@ def iter_candidate_files(
 
 
 def load_snippet(path: Path, max_chars: int = 8000) -> str:
-    """Read a file with a safe size cap; include head and tail when trimmed."""
     text = path.read_text(encoding="utf-8", errors="ignore")
     if len(text) <= max_chars:
         return text
@@ -172,7 +157,6 @@ def load_snippet(path: Path, max_chars: int = 8000) -> str:
 def build_prompt(
     manifest_info: Dict[str, object], rel_path: str, code_snippet: str
 ) -> List[Dict[str, str]]:
-    """Create chat messages for the LLM request."""
     manifest_summary = json.dumps(manifest_info, ensure_ascii=False)
     system_prompt = (
         "You are an Android reverse engineer. "
@@ -219,9 +203,9 @@ def build_prompt(
         }}
 
         Code:
-        ```
+```
         {code_snippet}
-        ```
+```
         """
     ).strip()
     return [
@@ -231,8 +215,6 @@ def build_prompt(
 
 
 class OpenAIClient:
-    """Minimal OpenAI-compatible chat completions client using requests."""
-
     def __init__(
         self,
         api_key: str,
@@ -276,7 +258,6 @@ class OpenAIClient:
 
 
 def write_reports(out_dir: Path, results: List[Dict[str, object]]) -> None:
-    """Persist JSON and Markdown reports."""
     json_path = out_dir / "analysis.json"
     md_path = out_dir / "analysis.md"
 
@@ -372,7 +353,6 @@ def analyze_files(
     files: List[Path],
     manifest_info: Dict[str, object],
 ) -> List[Dict[str, object]]:
-    """Send each file to the LLM and collect structured responses."""
     results: List[Dict[str, object]] = []
     for idx, path in enumerate(files, 1):
         rel_path = str(path.relative_to(root))
@@ -389,26 +369,23 @@ def analyze_files(
                 "raw_response": content if "content" in locals() else "",
             }
         results.append(parsed)
-        time.sleep(0.1)  # gentle pacing
+        time.sleep(0.1)
     return results
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Auto Android reverse engineering via LLM (hardcoded API settings)"
+        description="Auto Android reverse engineering via LLM"
     )
     parser.add_argument("apk", type=Path, help="Path to APK file")
     args = parser.parse_args()
 
-    # 환경변수 대신 하드코딩 값 사용
     api_key = OPENAI_API_KEY
     model = OPENAI_MODEL
     api_base = OPENAI_API_BASE
 
     if not api_key:
-        raise SystemExit(
-            "OPENAI_API_KEY 상수에 API 키를 설정한 후 다시 실행해 주세요."
-        )
+        raise SystemExit("OPENAI_API_KEY not set")
 
     apk_path: Path = args.apk
     if not apk_path.exists():
@@ -435,11 +412,10 @@ def main() -> None:
 
     files = iter_candidate_files(
         src_root,
-        include_smali=True,
-        limit=None,
-        max_bytes=None,
+        include_smali=False,
+        limit=50,
+        max_bytes=150000,
         package_name=manifest_info.get("package") if isinstance(manifest_info, dict) else None,
-        exclude_libs=True,
     )
     if not files:
         raise SystemExit("No candidate files found.")
@@ -448,9 +424,7 @@ def main() -> None:
     for path in files:
         print(f"- {path.relative_to(src_root)}")
 
-    client = OpenAIClient(
-        api_key=api_key, model=model, base_url=api_base
-    )
+    client = OpenAIClient(api_key=api_key, model=model, base_url=api_base)
     results = analyze_files(client, src_root, files, manifest_info)
     write_reports(out_dir, results)
     print("Done.")
