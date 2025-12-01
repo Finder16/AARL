@@ -1,2 +1,2 @@
 # AARL
-auto andrioid reverse engineering by LLM
+Auto Android reverse engineering by LLM.
