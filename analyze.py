@@ -14,7 +14,7 @@ except ImportError:
     requests = None
 
 
-OPENAI_API_KEY = "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
+OPENAI_API_KEY = "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 # this key is not real
 OPENAI_MODEL = "gpt-4o-mini"
 OPENAI_API_BASE = "https://api.openai.com/v1"
 
